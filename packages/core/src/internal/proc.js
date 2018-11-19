@@ -21,7 +21,14 @@ export default function proc(env, iterator, parentContext, parentEffectId, meta,
   next.cancel = noop
 
   /** Creates a main task to track the main flow */
-  const mainTask = { meta, cancel: cancelMain, running: true, cancelled: false }
+  let mainRunning = true
+  let mainCancelled = false
+  const mainTask = {
+    meta,
+    cancel: cancelMain,
+    isRunning: () => mainRunning,
+    isCancelled: () => mainCancelled,
+  }
 
   /**
    Creates a new task descriptor for this generator.
@@ -38,8 +45,8 @@ export default function proc(env, iterator, parentContext, parentEffectId, meta,
     cancellation of the main task. We'll simply resume the Generator with a TASK_CANCEL
   **/
   function cancelMain() {
-    if (mainTask.running && !mainTask.cancelled) {
-      mainTask.cancelled = true
+    if (mainRunning && !mainCancelled) {
+      mainCancelled = true
       next(TASK_CANCEL)
     }
   }
@@ -63,7 +70,7 @@ export default function proc(env, iterator, parentContext, parentEffectId, meta,
   **/
   function next(arg, isErr) {
     // Preventive measure. If we end up here, then there is really something wrong
-    if (!mainTask.running) {
+    if (!mainRunning) {
       throw new Error('Trying to resume an already finished generator')
     }
 
@@ -79,7 +86,7 @@ export default function proc(env, iterator, parentContext, parentEffectId, meta,
           - By cancelling the parent task manually
           - By joining a Cancelled task
         **/
-        mainTask.cancelled = true
+        mainCancelled = true
         /**
           Cancels the current effect; this will propagate the cancellation down to any called tasks
         **/
@@ -102,14 +109,14 @@ export default function proc(env, iterator, parentContext, parentEffectId, meta,
         /**
           This Generator has ended, terminate the main task and notify the fork queue
         **/
-        mainTask.running = false
+        mainRunning = false
         mainTask.cont(result.value)
       }
     } catch (error) {
-      if (mainTask.cancelled) {
+      if (mainCancelled) {
         throw error
       }
-      mainTask.running = false
+      mainRunning = false
       mainTask.cont(error, true)
     }
   }
